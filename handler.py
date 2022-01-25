@@ -15,6 +15,9 @@ import DelayedFunctions as df #will clean up later
 # to its neighbors and a source term from its neighbors
 
 #read in input data from XS_G12.npz as an example
+# probably this should be done with a command line input pointed at a file with 
+# the same structure
+
 data        = np.load('XS_G12.npz')
 E           = data['E']
 SigmaT      = data["SigmaT"]
@@ -31,25 +34,44 @@ beta_frac   = data["beta_frac"]
 #read program input file to decide what controls should be on the simulation.
 with open('input.IN',"r") as f:
     
-    T   = f.readline() #final time, initial is assumed to be zero
-    dt  = f.readline() #timestep size
-    X   = f.readline() #radius of object
-    Nx  = f.readline() #number of space grid points
-    BCL = f.readline() #left reflectance boundary condition
-    BCR = f.readline() #right reflectance boundary condition
-    geo = f.readline() #geometry 1-slab, 2-cyl, 3-sphere
+    T   = float(f.readline()) #final time, initial is assumed to be zero
+    dt  = float(f.readline()) #timestep size
+    X   = float(f.readline()) #radius of object
+    Nx  = int(f.readline()) #number of space grid points
+    BCL = float(f.readline()) #left reflectance boundary condition
+    BCR = float(f.readline()) #right reflectance boundary condition
+    geo = int(f.readline()) #geometry 1-slab, 2-cyl, 3-sphere
     assert geo == 0 or geo == 1 or geo == 2
     
     pass
 
+################# placeholders #########################
 
 todo = 'boggle'
 
+matLib = np.array(data,dtype = object)
+
+########################################################
 class Grid:
     
-    def __init__(self,idx):
+    def __init__(self,idx,matNo):
+
         local_r_pos = df.create_grid(X,Nx)[1][idx]
-        left_leakage_term = todo
-        right_leakage_term = todo
+        local_time  = 0
+        #TODO: Make material library
+        SigmaT      = matLib[matNo]["SigmaT"] #total cross section
+        SigmaF      = matLib[matNo]["SigmaF"] #fission cross section
+        SigmaS      = matLib[matNo]["SigmaS"] #down scattering cross section
+        nu_prompt   = matLib[matNo]["nu_prompt"] #probability a neutron is born fast
+        nu_delayed  = matLib[matNo]["nu_prompt"]
+        
+    def queryNeighbors():
+
+        left_outgoing_term   = todo
+        right_outgoing_term  = todo
+        left_incoming_term  = todo
+        right_incoming_term = todo
         
     pass
+
+test = Grid(0,0)
