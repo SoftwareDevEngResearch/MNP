@@ -63,22 +63,44 @@ class Grid:
         
         #These are defined for the computataional spatial grid
         self.geo = geo
-        self.dr, self.edges,self.centers = df.create_grid(X,Nx)
+        self.dr, self.edges,self.centers = df.create_grid(X,NumX)
         self.current_time_step = 0
+        self.NumX = NumX
         #build surface area and volumes for the grid
         assert self.geo == 0 or self.geo == 1 or self.geo == 2
         #0: slab, 1: cylinder, 2: sphere
-        self.S = np.zeros(Nx+1) #surface area on the edges
-        self.V = np.zeros(Nx)   #volume of the cells
+        self.S = np.zeros(NumX+1) #surface area on the edges
+        self.V = np.zeros(NumX)   #volume of the cells
         if self.geo == 0:
             self.S[:] = 1
-            self.V = self.dr
+            self.V = np.ones(NumX)*self.dr
         elif self.geo == 1:
             self.S = 4*np.pi*self.edges**2
             self.V = 4/3*np.pi*(self.edges[1:]**3 - self.edges[:-1]**3)
         elif self.geo == 2:
             self.S = 2*np.pi*self.edges
             self.V = np.pi*(self.edges[1:]**2 - self.edges[:-1]**2)
+        
+        #Define surface area div by Volume for each cell
+        self.S_over_V = np.zeros(NumX + 1,dtype = object)
+        
+        for i in range(NumX + 1):
+            if i == 0: #On the left boundary
+                if geo == 1 or geo == 2:
+                    self.S_over_V[i] = np.zeros(self.G)
+                else:
+                    self.S_over_V[i] = 2*(self.S[i])/self.V[i]
+        
+            elif i == self.NumX: #On the right boundary
+                self.S_over_V[i] = 2*(self.S[i])/self.V[i - 1]
+        
+            else: #In between
+                if i == 1 and (geo == 1 or geo == 2):
+                    self.S_over_V[i] = 2/(self.S[i])/self.V[i]
+                else:
+                    self.S_over_V[i] = 2/((self.V[i - 1]/(self.S[i-1])) + self.V[i]/(self.S[i]))
+        
+        #Time Grid
         assert method == 1 or method == 0
         if method == 0:
             self.t = np.linspace(startTime,finalTime,numTimePoints)
@@ -96,7 +118,7 @@ class Grid:
         self.G      = len(self.E) - 1  #number of points in the energy grid
         
     def delayedEnergyGridProperties(self,aNeuMatLib):
-        self.decay  = aNeuMatLib[7] #property of the delayed neutron grid, discrete decay constant vector
+        self.decay  = aNeuMatLib[9] #property of the delayed neutron grid, discrete decay constant vector
         self.J      = len(self.decay)  #number of points in the precursor flavor grid
         
 class Cell:
@@ -110,26 +132,50 @@ class Cell:
         self.center             = Grid.centers[idx]
         self.current_time_step  = Grid.current_time_step
         self.dt                 = Grid.current_dt
+        #initialize different physics
         if hasattr(Grid, 'G'):
             self.neutronics     = 1
             self.G              = Grid.G
             self.v              = Grid.v
+            self.phi            = np.zeros(self.G)
         else:
             self.neutronics     = 0
         if hasattr(Grid, 'J'):
             self.delayed        = 1
             self.J              = Grid.J
+            self.C              = np.zeros(self.J)
         else:
             self.delayed        = 0
+        #determine if this cell is a boundary cell
+        if idx == 0:
+            self.is_left_boundary   = 1
+            self.is_right_boundary  = 0
+        elif idx == Grid.NumX:
+            self.is_right_boundary  = 1
+            self.is_left_boundary   = 0
+        else:
+            self.is_left_boundary   = 0
+            self.is_right_boundary  = 0
             
-    def queryNeighbors(self):
-
-        self.left_outgoing_term   = todo
-        self.right_outgoing_term  = todo
-        self.left_incoming_term   = todo
-        self.right_incoming_term  = todo
+    def queryNeighborsFlux(self):
         
-    def buildLocalMatrix(self):
+        if self.is_left_boundary == 1:
+            self.right_soln_vector  = self.readStateFromFile(self, \
+                 r'out_{}_{}.csv'.format(self.current_time_step,self.idx - 1))
+            pass
+        
+        elif self.is_right_boundary == 1:
+            self.left_soln_vector   = self.readFluxStateFromFile(self, \
+                 r'out_{}_{}.csv'.format(self.current_time_step,self.idx - 1))
+            pass
+        else:            
+            self.left_soln_vector   = self.readFluxStateFromFile(self, \
+                 r'out_{}_{}.csv'.format(self.current_time_step,self.idx - 1))
+            
+            self.right_soln_vector  = self.readStateFromFile(self, \
+                 r'out_{}_{}.csv'.format(self.current_time_step,self.idx - 1))
+        
+    def buildLocalInfMedMatrix(self):
         if hasattr(self, 'J'): #if delayed neutronics is enabled
             self.A = df.GetAMultiGroupDelayedINF(self.G,self.J,self.SigmaT,
                                                  self.SigmaF,self.SigmaS,self.v,
@@ -141,7 +187,30 @@ class Cell:
                                                  self.SigmaF,self.SigmaS,self.v,
                                                  self.nu_prompt,0,
                                                  self.chi_prompt,0,
-                                                 0,0,self.dt,0)            
+                                                 0,0,self.dt,0)
+      
+    def buildLocalFullMatrixBC(self,neighborA,neighborVec):
+        if self.is_left_boundary or self.is_right_boundary == 1:
+            
+            self.bigA = np.zeros([2*self.G,2*self.G])
+            if self.is_left_boundary == 1:
+                self.bigA[:self.G,:self.G] = self.A
+                self.bigA[self.G:,self.G:] = neighborA # for right neighbor
+                self.bigA[self.G:,:self.G] = np.diag(neighborVec)
+                pass
+            elif self.is_right_boundary == 1:
+                pass
+            else:
+                print('Error in Cell.buildLocalMatrix(), cell is both boundary nodes!')
+                assert 0
+        else:
+            self.bigA = np.zeros([3*self.G,3*self.G])
+            
+    def buildLocalFullMatrix(self,LeftNeighborA,LeftNeighborvec,RightNeighborA,RightNeighborVec):
+        self.bigA = np.zeros([3*self.G,3*self.G])
+        
+        pass
+    
     def neutronicsMaterialProperties(self,aNeuMatLib):
     #initialize neutronics
         self.SigmaT     = aNeuMatLib[1]
@@ -149,6 +218,7 @@ class Cell:
         self.SigmaS     = aNeuMatLib[3]
         self.nu_prompt  = aNeuMatLib[5]
         self.chi_prompt = aNeuMatLib[7]
+        self.D          = 1/(3*self.SigmaT)
     
     def delayedMaterialProperties(self,aNeuMatLib):
     #initialize delayed neutronics, requires neutronics to be initialized
@@ -158,68 +228,59 @@ class Cell:
         self.chi_delayed = aNeuMatLib[8]
         self.decay      = aNeuMatLib[9] 
         
-    def readStateFromFile(self,file_name_str):
-        print('readStateFromFile:todo')
+    def readFluxStateFromFile(self,flux_file_name_str):
+        print('readFluxStateFromFile:todo')
         
-        f = open(file_name_str,'r')
-        self.soln_vector = f.read()
+        f = open(flux_file_name_str,'r')
+        self.phi = f.read()
         pass
     
-    def writeStateToFile(self):
-        print('writeStateToFile:todo')
-        path = './Output'
+    def writeFluxStateToFile(self):
+        print('writeFluxStateToFile:todo')
+        path = './Output/'
         pathExists = os.path.exists(path)
         if pathExists:
             pass
         else:
             os.makedirs(path)
+            
+        self.flux_file_name_str = r'Flux_out_{}_{}.dat'.format(self.current_time_step,self.idx)
+        self.flux_file_name_str = path + self.flux_file_name_str
+        with open(self.flux_file_name_str,'w') as outfile:
+            for line in self.phi:
+                outfile.write("{}\n".format(line))
+                
+    def readPrecursorStateFromFile(self,precursor_file_name_str):
+        print('readPrecursorStateFromFile: todo')
+        f = open(precursor_file_name_str,'r')
+        self.C = f.read()
         pass
     
-        file_name_str = r'out_{}_{}.csv'.format(self.current_time_step,self.idx)    
-        with open(file_name_str,'w') as csvfile:
-            csvwriter = csv.writer(csvfile)
-            
-            csvwriter.writerow(self.DataLabels)
-            csvwriter.writerows(self.output_data)
-       
-    def prepareOutputData(self):
-        #check what physics is initialized, prepare .csv file labels and data accordingly
-        self.DataLabels = []
-        num_cols = 0
-        if self.neutronics == 1:
-            self.DataLabels.append('phi')
-            num_cols += 1
-            
-        if self.delayed == 1:
-            self.DataLabels.append('C')
-            num_cols += 1
-        
-        #Likely, one of these will be longer than the other, this needs to be handled
-        
-        if len(self.phi) > len(self.C):
-            larger_vector_len = len(self.phi)
-        elif len(self.C) > len(self.phi):
-            larger_vector_len = len(self.C)
+    def writePrecursorStateToFile(self):
+        print('writePrecursorStateToFile: Todo')
+        path = './Output/'
+        pathExists = os.path.exists(path)
+        if pathExists:
+            pass
         else:
-            larger_vector_len = len(self.phi)
-        
-        self.output_data = np.zeros([num_cols,larger_vector_len])
-        if num_cols == 1:
-            self.output_data[0,:] = self.phi
-        elif num_cols == 2:
-            try:
-                self.output_data[0,:] = self.phi
-            except IndexError:
-                for g in range(self.G):
-                    self.output_data[0,g] = self.phi[g]
-            try:
-                self.output_data[1,:] = self.C
-            except IndexError:
-                for j in range(self.J):
-                    self.output_data[1,j] = self.C[j]
-                    
+            os.makedirs(path)
+            
+        self.precursor_file_name_str = r'Pre_out_{}_{}.dat'.format(self.current_time_step,self.idx)
+        self.precursor_file_name_str = path + self.precursor_file_name_str
+        with open(self.precursor_file_name_str,'w') as outfile:
+            for line in self.C:
+                outfile.write("{}\n".format(line))
+maxX = X
+NumX = Nx
+aNeuMatLib = matLib
+geo = geo
+startTime = 0
+finalTime = T
+numTimePoints = 20
+method = 0
+
 print("init grid")
-test_grid = Grid(10,50,matLib,geo,0,10,20,0)
+test_grid = Grid(maxX,NumX,matLib,geo,startTime,finalTime,numTimePoints,method)
 print("assign eneryg grid properties")
 test_grid.neutronicsEnergyGridProperties(matLib)
 print("assign delayed neutron properties")
@@ -231,4 +292,4 @@ test_cell.neutronicsMaterialProperties(matLib)
 print('assign delayed properties to the cell')
 test_cell.delayedMaterialProperties(matLib)
 print('build local A matrix for the cell')
-test_cell.buildLocalMatrix()
+test_cell.buildLocalInfMedMatrix()
