@@ -172,6 +172,7 @@ class Grid:
         for i in range(self.NumX):
             
             self.cellsList[i].initializeFlux(newFlux[i*self.G:(i+1)*self.G])
+            print(self.cellsList[i].C)
             self.cellsList[i].C = df.MultiGroupCStepper(\
                 self.J, self.cellsList[i].nu_delayed, self.cellsList[i].SigmaF,\
                     newFlux[i*self.G:(i+1)*self.G], self.current_dt, self.decay\
@@ -190,7 +191,27 @@ class Grid:
                 self.cellsList[i].advance(self.current_dt)
                 self.cellsList[i].buildLocalInfMedMatrix()
         
+    def Run(self):
         
+        while self.current_time_step < self.numTimePoints - 1:
+            self.step()
+        
+    def Run_verbose(self):
+        self.PHI_History    = np.zeros([self.NumX*self.G,self.numTimePoints])
+        self.C_History      = np.zeros([self.NumX*self.J,self.numTimePoints])
+        self.buildPHI_Total()
+        self.buildC_Total()
+        self.PHI_History[:,0] = self.PHI
+        self.C_History[:,0] = self.C
+        while self.current_time_step < self.numTimePoints - 1:
+            
+            self.step()
+            self.buildPHI_Total()
+            self.buildC_Total()
+            self.PHI_History[:,self.current_time_step]  = self.PHI
+            self.C_History[:,self.current_time_step]    = self.C
+    
+    
     def buildPHI_Total(self):
         self.PHI = np.zeros(self.NumX*self.G)
         for i in range(self.NumX):
@@ -436,36 +457,42 @@ if __name__ == "__main__":
     test_grid.cellsList[0].initializeFlux(v)
     print('build RHS with method')
     test_grid.buildRHS_Total()
-    print('step forward in time twice with a method')
+    # print('step forward in time twice with a method')
     
-    print(test_grid.current_dt,test_grid.cellsList[0].dt)
+    # print(test_grid.current_dt,test_grid.cellsList[0].dt)
     
-    phiHist = np.empty([test_grid.NumX*test_grid.G,test_grid.numTimePoints])
-    qHist   = np.zeros([test_grid.NumX*test_grid.G,test_grid.numTimePoints])
-    matHist = np.zeros(3,dtype = object)
-    CHist   = np.zeros([test_grid.NumX*test_grid.J,test_grid.numTimePoints])
+    # phiHist = np.empty([test_grid.NumX*test_grid.G,test_grid.numTimePoints])
+    # qHist   = np.zeros([test_grid.NumX*test_grid.G,test_grid.numTimePoints])
+    # matHist = np.zeros(3,dtype = object)
+    # CHist   = np.zeros([test_grid.NumX*test_grid.J,test_grid.numTimePoints])
     
+    # test_grid.buildPHI_Total()
+    # test_grid.buildC_Total()
+    # phiHist[:,0] = test_grid.PHI
+    # matHist[0] = test_grid.A_total
+    # qHist[:,0] = test_grid.RHS_total
+    # CHist[:,0] = test_grid.C
+    # test_grid.step()
+    # print(test_grid.current_dt, test_grid.cellsList[0].dt)
+    
+    # test_grid.buildPHI_Total()
+    # test_grid.buildC_Total()
+    # phiHist[:,1] = test_grid.PHI
+    # matHist[1] = test_grid.A_total
+    # qHist[:,1] = test_grid.RHS_total
+    # CHist[:,1] = test_grid.C
+    # test_grid.step()
+    # print(test_grid.current_dt,test_grid.cellsList[0].dt)
+    
+    # test_grid.buildPHI_Total()
+    # test_grid.buildC_Total()
+    # qHist[:,2] = test_grid.RHS_total
+    # phiHist[:,2] = test_grid.PHI
+    # matHist[2] = test_grid.A_total
+    # CHist[:,2] = test_grid.C
+    
+    print('Run with method')
+    test_grid.Run_verbose()
     test_grid.buildPHI_Total()
-    test_grid.buildC_Total()
-    phiHist[:,0] = test_grid.PHI
-    matHist[0] = test_grid.A_total
-    qHist[:,0] = test_grid.RHS_total
-    CHist[:,0] = test_grid.C
-    test_grid.step()
-    print(test_grid.current_dt, test_grid.cellsList[0].dt)
-    
-    test_grid.buildPHI_Total()
-    test_grid.buildC_Total()
-    phiHist[:,1] = test_grid.PHI
-    matHist[1] = test_grid.A_total
-    qHist[:,1] = test_grid.RHS_total
-    CHist[:,1] = test_grid.C
-    test_grid.step()
-    print(test_grid.current_dt,test_grid.cellsList[0].dt)
-    
-    test_grid.buildPHI_Total()
-    test_grid.buildC_Total()
-    qHist[:,2] = test_grid.RHS_total
-    phiHist[:,2] = test_grid.PHI
-    matHist[2] = test_grid.A_total
-    CHist[:,2] = test_grid.C
+    phi_final = test_grid.PHI_History
+    C_final = test_grid.C_History
