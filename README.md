@@ -1,6 +1,8 @@
 # MNP
 <a href="https://zenodo.org/badge/latestdoi/451990863"><img src="https://zenodo.org/badge/451990863.svg" alt="DOI"></a>
+
 Package for handling Multiphysics Neutronics systems. Requires numpy and numba.
+
 Run the software with  
 
 >$python wrapper.py material.npz input.in
