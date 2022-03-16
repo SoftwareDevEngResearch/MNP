@@ -1,0 +1,12 @@
+-11     #   T0,     float,  initial time
+3       #   T,      float,  Final time
+1000    #   NT,     int,    Number of time points
+1       #   method, int,    Timestepping method to use, 0: constant dt, 1: logarithmic stepping
+4.6699  #   X,      float,  Size of material
+100     #   Nx,     int,    Number of spatial grid points
+0       #   BCL,    float,  Left reflectance boundary contition
+0       #   BCR,    float   Right reflectance boundary condition
+0       #   geo,    int,    Geometry, 0:rectangular, 1: cylindrical, 2: spherical
+True    #   verbose, bool,  whether or not to store data at every time step
+True	#   timeit,  bool,  whether or not to benchmark the program runtime
+True	#   saveit,  bool,  whether or not to save the output of the program
