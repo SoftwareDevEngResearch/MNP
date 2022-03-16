@@ -7,9 +7,11 @@ Created on Tue Jan 25 13:42:43 2022
 
 import numpy as np
 import os
-import csv
 import DelayedFunctions as df #will clean up later
 
+if __name__ == "__main__":
+    import time
+    timetheprogramstarted  = time.time()
 # The purpose of this file is to handle calling the functions as necessary to step
 # individual cells forward in time.
 
@@ -20,41 +22,48 @@ import DelayedFunctions as df #will clean up later
 # probably this should be done with a command line input pointed at a file with 
 # the same structure
 
-data        = np.load('XS_G12.npz')
-E           = data['E']
-SigmaT      = data["SigmaT"]
-SigmaF      = data["SigmaF"]
-SigmaS      = data["SigmaS"]
-v           = data["v"] * 1000
-nu_prompt   = data["nu_prompt"]
-nu_delayed  = data["nu_delayed"]
-chi_prompt  = data["chi_prompt"]
-chi_delayed = data["chi_delayed"]
-decay       = data["decay"] #lambda
-beta_frac   = data["beta_frac"]
+    material_name_string = 'sample/XS_G12.npz'
+    
+    data        = np.load(material_name_string)
+    E           = data['E']
+    SigmaT      = data["SigmaT"]
+    SigmaF      = data["SigmaF"]
+    SigmaS      = data["SigmaS"]
+    v           = data["v"] * 1000
+    nu_prompt   = data["nu_prompt"]
+    nu_delayed  = data["nu_delayed"]
+    chi_prompt  = data["chi_prompt"]
+    chi_delayed = data["chi_delayed"]
+    decay       = data["decay"] #lambda
+    beta_frac   = data["beta_frac"]
 
 #read program input file to decide what controls should be on the simulation.
-with open('input.IN',"r") as f:
+
+    input_name_string = 'sample/input.IN'
     
-    T0  = float(f.readline())   #initial time
-    T   = float(f.readline())   #final time
-    NT  = int(f.readline())     #Number of time steps
-    X   = float(f.readline())   #radius of object
-    Nx  = int(f.readline())     #number of space grid points
-    BCL = float(f.readline())   #left reflectance boundary condition
-    BCR = float(f.readline())   #right reflectance boundary condition
-    geo = int(f.readline())     #geometry 1-slab, 2-cyl, 3-sphere
-    alpha = [BCL,BCR]
-    assert geo == 0 or geo == 1 or geo == 2
-    
-    pass
+    with open(input_name_string,"r") as f:
+        
+        T0      = float(f.readline())   #initial time
+        T       = float(f.readline())   #final time
+        NT      = int(f.readline())     #Number of time steps
+        X       = float(f.readline())   #radius of object
+        Nx      = int(f.readline())     #number of space grid points
+        BCL     = float(f.readline())   #left reflectance boundary condition
+        BCR     = float(f.readline())   #right reflectance boundary condition
+        geo     = int(f.readline())     #geometry 1-slab, 2-cyl, 3-sphere
+        verbose = bool(f.readline())
+        plot    = bool(f.readline())
+        alpha = [BCL,BCR]
+        assert geo == 0 or geo == 1 or geo == 2
+        
+        pass
 
 ################# placeholders #########################
 
-todo = 'boggle'
-
-matLib = np.array((E,SigmaT,SigmaF,SigmaS,v,nu_prompt,nu_delayed,chi_prompt,chi_delayed,decay,beta_frac),dtype = object)
-#                 [0,1     ,2     ,3     ,4,5,       ,6,        ,7         ,8          ,9    ,10]
+    todo = 'boggle'
+    
+    matLib = np.array((E,SigmaT,SigmaF,SigmaS,v,nu_prompt,nu_delayed,chi_prompt,chi_delayed,decay,beta_frac),dtype = object)
+#                     [0,1     ,2     ,3     ,4,5,       ,6,        ,7         ,8          ,9    ,10]
 ########################################################
 class Grid:
     #creates the computational grid, 1d for now.
@@ -65,7 +74,7 @@ class Grid:
         
         #These are defined for the computataional spatial grid
         self.geo = geo
-        self.dr, self.centers,self.edges = df.create_grid(X,NumX)
+        self.dr, self.centers,self.edges = df.create_grid(maxX,NumX)
         self.current_time_step = 0
         self.numTimePoints = numTimePoints
         self.NumX = NumX
@@ -114,6 +123,7 @@ class Grid:
         self.global_time    = self.t[self.current_time_step]
         self.dts            = self.t[1:] - self.t[:-1]
         self.current_dt     = self.dts[self.current_time_step]
+        self.matLib         = aNeuMatLib
         pass
             
     def neutronicsEnergyGridProperties(self,aNeuMatLib):
@@ -134,7 +144,16 @@ class Grid:
 
     def buildA_Total(self):
         if self.cells_built != 1:
+            #assign materials to cells manually to assign different material properties to different cells.
             self.buildCells()
+            if hasattr(self,'G'):
+                for i in range(self.NumX):
+                    self.cellsList[i].neutronicsMaterialProperties(self.matLib)
+            if hasattr(self,'J'):
+                for i in range(self.NumX):
+                    self.cellsList[i].delayedMaterialProperties(self.matLib)
+            self.cells_built = 1
+            
         assert self.cells_built == 1
         self.A_total = np.zeros([self.NumX*self.G,self.NumX*self.G])
         for i in range(self.NumX):
@@ -172,7 +191,6 @@ class Grid:
         for i in range(self.NumX):
             
             self.cellsList[i].initializeFlux(newFlux[i*self.G:(i+1)*self.G])
-            print(self.cellsList[i].C)
             self.cellsList[i].C = df.MultiGroupCStepper(\
                 self.J, self.cellsList[i].nu_delayed, self.cellsList[i].SigmaF,\
                     newFlux[i*self.G:(i+1)*self.G], self.current_dt, self.decay\
@@ -417,6 +435,11 @@ class Cell:
         with open(self.precursor_file_name_str,'w') as outfile:
             for line in self.C:
                 outfile.write("{}\n".format(line))
+
+def stringSplitter(string):
+    idx = string.find('#')
+    return string[:idx]
+
 if __name__ == "__main__":
     
     maxX = X
@@ -427,35 +450,49 @@ if __name__ == "__main__":
     finalTime = T
     numTimePoints = NT
     method = 1
+    loud = 0
+    if loud == 1:
+        print("init grid")
     
-    print("init grid")
     test_grid = Grid(maxX,NumX,matLib,geo,startTime,finalTime,numTimePoints,method,alpha)
-    print("assign eneryg grid properties")
+    if loud == 1:
+        print("assign eneryg grid properties")
     test_grid.neutronicsEnergyGridProperties(matLib)
-    print("assign delayed neutron properties")
+    if loud == 1:
+        print("assign delayed neutron properties")
     test_grid.delayedEnergyGridProperties(matLib)
-    print("init a cell")
+    if loud == 1:
+        print("init a cell")
     test_cell = Cell(7,test_grid)
-    print("assign neutron material properties to the cell")
+    if loud == 1:
+        print("assign neutron material properties to the cell")
     test_cell.neutronicsMaterialProperties(matLib)
-    print('assign delayed properties to the cell')
+    if loud == 1:
+        print('assign delayed properties to the cell')
     test_cell.delayedMaterialProperties(matLib)
-    print('build local A matrix for the cell')
+    if loud == 1:
+        print('build local A matrix for the cell')
     test_cell.buildLocalInfMedMatrix()
-    print('build row of global A matrix')
+    if loud == 1:
+        print('build row of global A matrix')
     test_cell.buildRow()
-    print('build cells with method of Grid')
+    if loud == 1:
+        print('build cells with method of Grid')
     test_grid.buildCells()
-    print('initalize the cells with material properties')
+    if loud == 1:
+        print('initalize the cells with material properties')
     for i in range(NumX):
         test_grid.cellsList[i].neutronicsMaterialProperties(aNeuMatLib)
         test_grid.cellsList[i].delayedMaterialProperties(aNeuMatLib)
-    print('build A_total with method')
+    if loud == 1:
+        print('build A_total with method')
     test_grid.buildA_Total()
     t = test_grid.A_total
-    print('set value of RHS[0] with a method')
+    if loud == 1:
+        print('set value of RHS[0] with a method')
     test_grid.cellsList[0].initializeFlux(v)
-    print('build RHS with method')
+    if loud == 1:
+        print('build RHS with method')
     test_grid.buildRHS_Total()
     # print('step forward in time twice with a method')
     
@@ -491,8 +528,13 @@ if __name__ == "__main__":
     # matHist[2] = test_grid.A_total
     # CHist[:,2] = test_grid.C
     
-    print('Run with method')
+    if loud == 1:
+        print('Run with method')
     test_grid.Run_verbose()
     test_grid.buildPHI_Total()
     phi_final = test_grid.PHI_History
     C_final = test_grid.C_History
+    
+    print("Runtime = {}".format(time.time() - timetheprogramstarted))
+    import matplotlib.pyplot as plt
+    plt.plot(test_grid.t,test_grid.PHI_History[0,:])
